@@ -53,6 +53,7 @@ function keyEvent(init: KeyInit) {
     ctrlKey: init.ctrlKey ?? false,
     metaKey: init.metaKey ?? false,
     altKey: init.altKey ?? false,
+    target: undefined as { tagName?: string } | undefined,
     preventDefault: vi.fn(),
   };
 }
@@ -161,6 +162,16 @@ describe("game input", () => {
     fakeWindow.dispatch("keydown", keyEvent({ code: "Space" }));
     expect(playing.input.poll().fire).toBe(true);
     playing.input.dispose();
+  });
+
+  it("leaves Space and Enter to focused overlay form controls", () => {
+    const overlay = makeInput(false);
+    const event = keyEvent({ code: "Space" });
+    event.target = { tagName: "INPUT" };
+    fakeWindow.dispatch("keydown", event);
+    expect(overlay.calls).toEqual([]);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    overlay.input.dispose();
   });
 
   it("routes Esc/P to the pause toggle", () => {

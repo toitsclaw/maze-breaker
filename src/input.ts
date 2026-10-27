@@ -60,6 +60,9 @@ export function createInput(host: InputHost): GameInput {
   const onKeyDown = (ev: KeyboardEvent): void => {
     // Leave browser/OS shortcuts alone (Ctrl+W, Cmd+R, Alt+Left, …).
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    // Let overlay form controls handle Space/Enter themselves. The focused
+    // Start button still activates through its native click behavior.
+    if (!host.isPlaying() && isFormControl(ev.target) && (ev.code === "Space" || ev.code === "Enter")) return;
     if (ev.repeat) {
       if (keyBlocker(ev.code)) ev.preventDefault();
       return;
@@ -178,6 +181,11 @@ export function createInput(host: InputHost): GameInput {
     },
     releaseTriggers,
   };
+}
+
+function isFormControl(target: EventTarget | null): boolean {
+  const tag = (target as { tagName?: string } | null)?.tagName?.toUpperCase();
+  return tag === "BUTTON" || tag === "INPUT" || tag === "SELECT" || tag === "OPTION";
 }
 
 function anyOf(keys: Set<string>, set: Set<string>): boolean {

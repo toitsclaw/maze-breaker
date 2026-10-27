@@ -43,7 +43,7 @@ body {
   text-align: center;
 }
 
-/* Fixed internal resolution (384x216), scaled with CSS. Pixelated on purpose.
+/* Selectable 16:9 internal resolution, scaled with CSS. Pixelated on purpose.
    Width is capped so the canvas always fits the viewport height (no scrolling).
    The 200px floor keeps it visible in extremely short windows. */
 .viewport-shell {
@@ -143,6 +143,55 @@ body {
 .controls tr:last-child th,
 .controls tr:last-child td {
   border-bottom: none;
+}
+
+.settings {
+  display: grid;
+  gap: 7px;
+  margin: 0 auto 14px;
+  width: min(100%, 340px);
+  border: 1px solid #343b4a;
+  padding: 8px 10px 10px;
+  text-align: left;
+  font-size: 12px;
+}
+
+.settings legend {
+  padding: 0 5px;
+  color: var(--dim);
+}
+
+.settings label {
+  display: grid;
+  grid-template-columns: 86px 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings select,
+.settings input {
+  accent-color: var(--accent);
+}
+
+.settings select {
+  grid-column: 2 / 4;
+  min-height: 32px;
+  color: var(--ink);
+  background: #1c212b;
+  border: 1px solid #485166;
+  border-radius: 3px;
+  font: inherit;
+}
+
+.settings input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}
+
+.settings output {
+  min-width: 34px;
+  color: var(--dim);
+  text-align: right;
 }
 
 #overlay-button {

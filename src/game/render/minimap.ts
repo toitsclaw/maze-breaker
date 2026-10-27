@@ -1,4 +1,5 @@
 import type { GameState } from "../types";
+import { VIEW_W } from "../constants";
 
 /** Small tile minimap drawn around the player, top-right corner. */
 
@@ -10,7 +11,7 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, state: GameState): vo
   const px = Math.floor(player.x);
   const py = Math.floor(player.y);
   const size = (RADIUS * 2 + 1) * CELL;
-  const ox = ctx.canvas.width - size - 5;
+  const ox = VIEW_W - size - 5;
   const oy = 5;
 
   ctx.fillStyle = "rgba(8,10,14,0.62)";

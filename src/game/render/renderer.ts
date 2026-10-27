@@ -24,6 +24,7 @@ interface TextureSet {
 
 export interface DrawView {
   (state: GameState, sprites: SpriteSheet, reducedMotion: boolean): void;
+  setResolution(width: number, height: number): void;
   dispose(): void;
 }
 
@@ -69,6 +70,8 @@ export function createViewRenderer(
   let enemyViews: EnemyView[] = [];
   let exitView: EnemyView | null = null;
   const lookTarget = new THREE.Vector3();
+  let renderWidth = VIEW_W;
+  let renderHeight = VIEW_H;
 
   const draw = ((state: GameState, sprites: SpriteSheet, reducedMotion: boolean): void => {
     if (loadedMap !== state.map) {
@@ -92,9 +95,22 @@ export function createViewRenderer(
     muzzleLight.intensity = state.fire.muzzle > 0 ? 4.2 : 0;
 
     renderer.render(scene, camera);
-    hud.clearRect(0, 0, VIEW_W, VIEW_H);
+    const scale = renderWidth / VIEW_W;
+    hud.setTransform(1, 0, 0, 1, 0, 0);
+    hud.clearRect(0, 0, renderWidth, renderHeight);
+    hud.setTransform(scale, 0, 0, scale, 0, 0);
     drawHud(hud, state, reducedMotion);
   }) as DrawView;
+
+  draw.setResolution = (width: number, height: number): void => {
+    renderWidth = width;
+    renderHeight = height;
+    renderer.setSize(width, height, false);
+    hudCanvas.width = width;
+    hudCanvas.height = height;
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+  };
 
   draw.dispose = (): void => {
     clearGroup(worldRoot);

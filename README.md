@@ -1,10 +1,11 @@
 # Maze Breaker
 
 A complete, lightweight retro FPS MVP for the browser: a hand-authored maze
-rendered in Three.js at a fixed low internal resolution, instanced walls,
+rendered in Three.js at a selectable internal resolution, instanced walls,
 billboard "warden" enemies, a programmatically drawn pistol/HUD, and a small
 minimap. It has one runtime dependency (`three`), zero gameplay network
-requests, and zero image/audio assets — every texture is generated in code.
+requests, and zero image/audio assets — every texture and sound is generated in
+code.
 
 Clear every warden to unseal the exit beacon, then walk to it to win. Wardens
 will hunt you by sight and by the sound of your pistol.
@@ -24,7 +25,7 @@ npm run dev     # http://127.0.0.1:5173 (WSL2 localhost forwarding: open it in t
 Other commands:
 
 ```bash
-npm test            # vitest run — all 77 deterministic unit tests in 9 suites
+npm test            # vitest run — all 82 deterministic unit tests in 10 suites
 npm run typecheck   # tsc --noEmit (strict)
 npm run build       # vite production build -> dist/
 npm run preview     # serve dist/ on http://127.0.0.1:4173
@@ -53,7 +54,7 @@ WSL notes:
   styles are allowed only because Vite injects CSS that way during development;
   there are no inline scripts, external fonts, media, frames, workers, or
   analytics. `referrer` is `no-referrer`.
-- Gameplay issues zero network requests: sprites, HUD, level and feedback
+- Gameplay issues zero network requests: sprites, HUD, level, sound and feedback
   effects are all generated in code. The page keeps running after the server is
   stopped (once loaded) and offline.
 - The canvas has an accessible label and keyboard shortcuts, the overlay is a
@@ -78,6 +79,12 @@ can click **Resume** without fighting the lock. Losing focus, hiding the tab or
 losing pointer lock clears held keys and fire state, so the player cannot get
 stuck walking or firing.
 
+The start/pause overlay includes persistent settings for **Low (384×216)**,
+**Medium (640×360)**, and **High (960×540)** internal render resolution, plus a
+sound toggle and volume slider. Low remains the default for modest hardware.
+Browsers require a user gesture before Web Audio can start, so audio unlocks
+when Start/Resume is activated.
+
 Pin a deterministic run: `http://127.0.0.1:5173/?seed=1234` re-creates the same
 wander behavior for the same input sequence.
 
@@ -94,6 +101,9 @@ page reload.
   by the nearest *near-edge entry* distance along the ray (so a wide body whose
   edge is closer beats a small body whose centre is closer), and a wall between
   shooter and target always blocks the shot.
+- **Synthesized sound** — compact Web Audio cues for firing, hits, kills,
+  damage, footsteps, exit unlock, victory and defeat. No audio files or codecs
+  are loaded, and mute/volume preferences persist locally.
 - **Wardens (7)** — FSM: `idle` (slow seeded wander) → `chase` (sight ≤ 8.5 m
   with line-of-sight, or gunfire noise ≤ 6.5 m through walls) → `attack`
   (0.38 s wind-up while in 0.95 m; damage lands only if you are still in range
@@ -109,12 +119,13 @@ page reload.
 ## Architecture
 
 ```
-index.html                  WebGL canvas + transparent HUD canvas (384x216)
+index.html                  WebGL canvas + transparent HUD canvas, settings
                             overlay, aria-live status region
 src/
   main.ts                   boot, rAF loop, overlays, pause, pointer lock, focus, aria-live
   style.css                 retro frame; viewport-fixed scrollable overlay; reduced-motion guard
   input.ts                  key state, pointer-lock mouse deltas, cleanup, poll()
+  audio.ts                  Web Audio synthesis + state-to-cue derivation
   ui/announce.ts            per-tick aria-live batching and repeat-announcement helper
   game/
     constants.ts            every tuning knob in one place
@@ -176,14 +187,16 @@ Design rules:
   Enter/Space routing, pointer lock + fire on click, complete listener removal.
 - **announce** — aria-live batching (no dropped events), duplicate/empty
   filtering, repeat announcements with invisible suffixes.
+- **audio** — shot/hit/kill selection, damage, unlock, end-state and paced
+  footstep cue derivation.
 - **rng** — stream identity across same seed, divergence across seeds, bounds,
   uint32 seed wrapping.
 
 ## Performance notes (WSL / 4 GB RAM target)
 
-- The WebGL renderer is fixed at **384×216** (≈83k pixels), pixel ratio 1,
-  antialiasing off, and `powerPreference: low-power`. CSS scales the result, so
-  a large window does not increase the number of rendered pixels.
+- The WebGL renderer defaults to **384×216** (≈83k pixels), with optional
+  **640×360** and **960×540** modes. Pixel ratio stays at 1, antialiasing is off,
+  and `powerPreference: low-power`; CSS scales the selected 16:9 result.
 - Every wall cube is an instance of one `InstancedMesh`, keeping the maze to a
   single wall draw call. The seven wardens and exit are lightweight billboards.
 - There are no shadows, post-processing passes, models, downloaded textures,
@@ -200,13 +213,14 @@ Design rules:
 - WebGL 2 is required; very old browsers or machines without WebGL support
   cannot run the renderer.
 - Flat-shaded primitive geometry only: no wall textures or pitch look.
-- One weapon, no ammo economy, no audio (deliberately — keeps the bundle tiny
-  and avoids WebAudio quirks under WSL).
+- One weapon and no ammo economy. Sound uses intentionally compact synthesized
+  cues rather than recorded ambience or music.
 - Wardens rush in straight lines with axis fallback steering; no pathfinding
   (A*) — open corners are handled by wall-sliding, not graph search.
 - Single fixed seeded default per session (`Date.now()` unless `?seed=`).
 - Enemy corpses remain as pass-through scenery; hitscan ignores them.
-- Internal HUD text is chunky by design (pixel-scale UI at 384×216).
+- Internal HUD text is chunky by design; higher resolution modes retain its
+  retro proportions while improving world geometry clarity.
 
 ## License
 

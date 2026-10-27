@@ -7,8 +7,8 @@
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#0b0d11" />
     <meta name="referrer" content="no-referrer" />
-    <!-- The game is fully self-contained. This CSP also blocks any accidental
-         future network or inline-script dependency. ws: is only for Vite HMR. -->
+    <!-- The game is fully self-contained. Sound is synthesized with Web Audio;
+         no media files are loaded. ws: is only for Vite HMR. -->
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws: wss:; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'"
@@ -53,6 +53,26 @@
             <tr><th>Start / Resume</th><td>Enter</td></tr>
           </tbody>
         </table>
+        <fieldset class="settings">
+          <legend>Settings</legend>
+          <label>
+            <span>Resolution</span>
+            <select id="resolution">
+              <option value="384x216">Low · 384×216</option>
+              <option value="640x360">Medium · 640×360</option>
+              <option value="960x540">High · 960×540</option>
+            </select>
+          </label>
+          <label>
+            <span>Sound</span>
+            <input id="sound-enabled" type="checkbox" checked />
+          </label>
+          <label>
+            <span>Volume</span>
+            <input id="volume" type="range" min="0" max="100" value="55" />
+            <output id="volume-output" for="volume">55%</output>
+          </label>
+        </fieldset>
         <button id="overlay-button" type="button">Start</button>
         <p class="overlay-hint">Fully playable without a mouse. Sealed exit opens once every warden is down.</p>
       </div>

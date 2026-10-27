@@ -12,6 +12,7 @@ import { createViewRenderer } from "./game/render/renderer";
 import { buildSprites } from "./game/render/sprites";
 import { createInput } from "./input";
 import { createAnnouncer, formatEvents } from "./ui/announce";
+import { createGameAudio } from "./audio";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const hudCanvas = document.getElementById("hud") as HTMLCanvasElement;
@@ -20,6 +21,10 @@ const overlayTitle = document.getElementById("overlay-title") as HTMLElement;
 const overlayText = document.getElementById("overlay-text") as HTMLElement;
 const overlayButton = document.getElementById("overlay-button") as HTMLButtonElement;
 const statusEl = document.getElementById("status") as HTMLElement;
+const resolutionSelect = document.getElementById("resolution") as HTMLSelectElement;
+const soundEnabled = document.getElementById("sound-enabled") as HTMLInputElement;
+const volumeInput = document.getElementById("volume") as HTMLInputElement;
+const volumeOutput = document.getElementById("volume-output") as HTMLOutputElement;
 
 let state = createGame();
 const draw = createViewRenderer(canvas, hudCanvas);
@@ -33,6 +38,38 @@ if (seedParam !== null) {
   const parsed = Number.parseInt(seedParam, 10);
   if (Number.isFinite(parsed)) state = createGame({ seed: parsed >>> 0 });
 }
+
+const audio = createGameAudio(state);
+const RESOLUTIONS = {
+  "384x216": [384, 216],
+  "640x360": [640, 360],
+  "960x540": [960, 540],
+} as const;
+
+function readSetting(key: string, fallback: string): string {
+  try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
+}
+
+function writeSetting(key: string, value: string): void {
+  try { localStorage.setItem(key, value); } catch { /* Private mode can deny storage. */ }
+}
+
+function applyResolution(value: string): void {
+  const key = value in RESOLUTIONS ? value as keyof typeof RESOLUTIONS : "384x216";
+  resolutionSelect.value = key;
+  const [width, height] = RESOLUTIONS[key];
+  draw.setResolution(width, height);
+  writeSetting("maze-breaker-resolution", key);
+}
+
+const savedSound = readSetting("maze-breaker-sound", "on") !== "off";
+const savedVolume = Math.max(0, Math.min(100, Number(readSetting("maze-breaker-volume", "55")) || 0));
+soundEnabled.checked = savedSound;
+volumeInput.value = String(savedVolume);
+volumeOutput.value = `${savedVolume}%`;
+audio.setEnabled(savedSound);
+audio.setVolume(savedVolume / 100);
+applyResolution(readSetting("maze-breaker-resolution", "384x216"));
 
 interface OverlayCopy {
   title: string;
@@ -123,11 +160,13 @@ function drainEvents(): void {
 
 function startOrResume(): void {
   if (state.mode === "playing") return;
+  audio.unlock();
   if (state.mode === "paused") {
     resumeGame(state);
   } else {
     // Menu / victory / defeat all rebuild the same seeded run in place.
     state = resetGame(state);
+    audio.reset(state);
     beginPlay(state);
   }
   syncOverlay();
@@ -163,6 +202,23 @@ function onOverlayClick(): void {
   if (state.mode !== "playing") startOrResume();
 }
 
+function onResolutionChange(): void {
+  applyResolution(resolutionSelect.value);
+}
+
+function onSoundChange(): void {
+  audio.setEnabled(soundEnabled.checked);
+  if (soundEnabled.checked) audio.unlock();
+  writeSetting("maze-breaker-sound", soundEnabled.checked ? "on" : "off");
+}
+
+function onVolumeInput(): void {
+  const volume = Number(volumeInput.value);
+  volumeOutput.value = `${volume}%`;
+  audio.setVolume(volume / 100);
+  writeSetting("maze-breaker-volume", String(volume));
+}
+
 function onPointerLockChange(): void {
   if (state.mode === "playing" && document.pointerLockElement !== canvas) {
     // Pointer lock was dismissed by the browser (usually Esc): pause once.
@@ -176,6 +232,9 @@ function onVisibilityChange(): void {
 }
 
 overlayButton.addEventListener("click", onOverlayClick);
+resolutionSelect.addEventListener("change", onResolutionChange);
+soundEnabled.addEventListener("change", onSoundChange);
+volumeInput.addEventListener("input", onVolumeInput);
 document.addEventListener("pointerlockchange", onPointerLockChange);
 document.addEventListener("visibilitychange", onVisibilityChange);
 
@@ -191,6 +250,7 @@ function frame(now: number): void {
   while (acc >= STEP) {
     acc -= STEP;
     stepGame(state, input.poll(STEP), STEP);
+    audio.sync(state);
   }
   draw(state, sprites, reducedMq.matches);
   drainEvents();
@@ -206,9 +266,13 @@ if (import.meta.hot) {
     cancelAnimationFrame(rafId);
     input.dispose();
     overlayButton.removeEventListener("click", onOverlayClick);
+    resolutionSelect.removeEventListener("change", onResolutionChange);
+    soundEnabled.removeEventListener("change", onSoundChange);
+    volumeInput.removeEventListener("input", onVolumeInput);
     document.removeEventListener("pointerlockchange", onPointerLockChange);
     document.removeEventListener("visibilitychange", onVisibilityChange);
     releasePointerLock();
+    audio.dispose();
     draw.dispose();
   });
 }
