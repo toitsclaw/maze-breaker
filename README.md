@@ -1,14 +1,13 @@
 # Maze Breaker
 
-A complete, lightweight retro FPS MVP for the browser: a hand-authored maze cast
-with a classic DDA ray-caster at a fixed low internal resolution, flat-shaded
-walls, billboard "warden" enemies with true per-column occlusion, a
-programmatically drawn pistol/HUD, and a small minimap. Zero runtime
-dependencies, zero network requests, zero image/audio assets — every pixel is
-drawn with Canvas 2D primitives.
+A complete, lightweight retro FPS MVP for the browser: a hand-authored maze
+rendered in Three.js at a fixed low internal resolution, instanced walls,
+billboard "warden" enemies, a programmatically drawn pistol/HUD, and a small
+minimap. It has one runtime dependency (`three`), zero gameplay network
+requests, and zero image/audio assets — every texture is generated in code.
 
-Clear every warden to unseal the exit beacon, then walk to it to win. Star
-defenders will hunt you by sight and by the sound of your pistol.
+Clear every warden to unseal the exit beacon, then walk to it to win. Wardens
+will hunt you by sight and by the sound of your pistol.
 
 ---
 
@@ -18,7 +17,7 @@ Requires Node >= 20.19 (WSL2 Ubuntu 22.04+ ships older Node; use nvm/apt or
 `sudo apt install nodejs npm` from NodeSource). 4 GB RAM is plenty.
 
 ```bash
-npm install     # dev deps only (~52 packages, esbuild/vite/vitest/typescript)
+npm install     # installs Three.js plus the TypeScript/Vite/Vitest toolchain
 npm run dev     # http://127.0.0.1:5173 (WSL2 localhost forwarding: open it in the Windows browser)
 ```
 
@@ -27,7 +26,7 @@ Other commands:
 ```bash
 npm test            # vitest run — all 77 deterministic unit tests in 9 suites
 npm run typecheck   # tsc --noEmit (strict)
-npm run build       # vite build -> dist/ (~22.5 kB JS, 8.9 kB gzipped)
+npm run build       # vite production build -> dist/
 npm run preview     # serve dist/ on http://127.0.0.1:4173
 ```
 
@@ -40,7 +39,9 @@ WSL notes:
   forwarding cannot reach it, `npm run dev -- --host` exposes it on the local
   network — only do that on a trusted network.
 - If port 5173 is already taken, run `npm run dev -- --port 5174`.
-- The game runs entirely client-side; no GPU/WebGL needed — Canvas 2D only.
+- The game runs entirely client-side and requires WebGL 2. The deliberately
+  small scene and low internal resolution work well on modest integrated GPUs;
+  opening it in a Windows-side browser usually gives WSL2 the smoothest path.
 - To serve `dist/` without Node: `python3 -m http.server -d dist 8000`
   (module scripts need HTTP; `file://` will not work).
 
@@ -108,7 +109,7 @@ page reload.
 ## Architecture
 
 ```
-index.html                  canvas (384x216 internal, CSS-scaled, pixelated)
+index.html                  WebGL canvas + transparent HUD canvas (384x216)
                             overlay, aria-live status region
 src/
   main.ts                   boot, rAF loop, overlays, pause, pointer lock, focus, aria-live
@@ -119,14 +120,14 @@ src/
     constants.ts            every tuning knob in one place
     types.ts                pure data shapes (MapData, Enemy, GameState…)
     level.ts                authored maze strings, parser, BFS flood fill
-    raycast.ts              DDA castRay (rendering + LOS + range checks)
+    raycast.ts              DDA wall checks for LOS and weapon range
     collision.ts            circle-vs-grid overlap, axis-separated slide, swept sub-steps
     combat.ts               ray-circle hitscan with wall obstruction, damage
     enemy.ts                warden FSM, wall-safe chase/wander, separation
     state.ts                createGame/resetGame/beginPlay/pause/resume/stepGame (fixed tick)
     render/
-      renderer.ts           per-column DDA walls + layered depth buffer + fog
-      sprites.ts            prerendered enemy states, flash variants, beacon
+      renderer.ts           Three.js scene, camera, instanced walls, fog, sprites
+      sprites.ts            generated enemy/flash/beacon CanvasTextures
       hud.ts                pistol, crosshair, hitmarker, bars, messages
       minimap.ts            local 7-cell-radius tactical map
 tests/                      vitest suites (node environment, no DOM)
@@ -180,19 +181,15 @@ Design rules:
 
 ## Performance notes (WSL / 4 GB RAM target)
 
-- Internal render surface is a fixed **384×216** (≈83k pixels) scaled up with
-  CSS `image-rendering: pixelated` — resolution is independent of window size,
-  so a huge window costs the same CPU time as a small one.
-- Per frame: 384 DDA rays (≈ a few thousand grid steps on this 28×20 map),
-  384 `fillRect` wall columns, float32 depth buffer, 7 small offscreen sprite
-  blits with per-column occlusion tests. Contiguous visible sprite columns are
-  batched into a single `drawImage`, so a warden filling the screen still costs
-  one blit per visible run instead of one per column. Sprites are prerendered
-  once at boot — no per-frame shape rasterization for enemies.
-- Palette shades are precomputed strings; the frame loop allocates nothing
-  significant (one small billboard list). GC pressure stays near zero.
-- Expected cost is well under 5 ms/frame on a decade-old CPU, so the remaining
-  budget inside a 60 Hz tick is ample even under software EGL via WSLg.
+- The WebGL renderer is fixed at **384×216** (≈83k pixels), pixel ratio 1,
+  antialiasing off, and `powerPreference: low-power`. CSS scales the result, so
+  a large window does not increase the number of rendered pixels.
+- Every wall cube is an instance of one `InstancedMesh`, keeping the maze to a
+  single wall draw call. The seven wardens and exit are lightweight billboards.
+- There are no shadows, post-processing passes, models, downloaded textures,
+  or runtime asset requests. Generated sprite textures use nearest filtering.
+- The deterministic collision, line-of-sight, AI, and hitscan core stays on the
+  CPU and is independent of Three.js, which keeps tests fast and repeatable.
 - Falls back gracefully: pointer lock denial never blocks play (keyboard-only
   turning remains); `prefers-reduced-motion` stills the beacon pulse, disables
   weapon bob, and (via CSS) removes overlay transitions. Small/short viewports
@@ -200,7 +197,9 @@ Design rules:
 
 ## Limitations
 
-- Flat shading only: no wall textures, no floor/ceiling casting, no pitch look.
+- WebGL 2 is required; very old browsers or machines without WebGL support
+  cannot run the renderer.
+- Flat-shaded primitive geometry only: no wall textures or pitch look.
 - One weapon, no ammo economy, no audio (deliberately — keeps the bundle tiny
   and avoids WebAudio quirks under WSL).
 - Wardens rush in straight lines with axis fallback steering; no pathfinding

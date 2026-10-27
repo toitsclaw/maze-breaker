@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="Maze Breaker — a retro ray-casted browser FPS MVP. Clear the maze, then reach the exit." />
+    <meta name="description" content="Maze Breaker — a lightweight Three.js browser FPS. Clear the maze, then reach the exit." />
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#0b0d11" />
     <meta name="referrer" content="no-referrer" />
@@ -14,23 +14,26 @@
       content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws: wss:; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'"
     />
     <link rel="icon" href="data:," />
-    <title>Maze Breaker — Retro Raycast FPS</title>
+    <title>Maze Breaker — Three.js FPS</title>
   </head>
   <body>
     <main id="stage">
       <h1 class="game-title">MAZE BREAKER</h1>
-      <canvas
-        id="view"
-        width="384"
-        height="216"
-        tabindex="0"
-        role="img"
-        aria-label="First-person maze view. Clear every warden, then reach the exit. Move with W A S D, turn with Q E or the arrow keys, fire with Space, and press P to pause."
-        aria-keyshortcuts="W A S D Q E ArrowLeft ArrowRight Space P Escape"
-      >
-        Your browser does not support the Canvas 2D view. Maze Breaker needs a
-        modern browser with JavaScript enabled.
-      </canvas>
+      <div class="viewport-shell">
+        <canvas
+          id="view"
+          width="384"
+          height="216"
+          tabindex="0"
+          role="img"
+          aria-label="Three-dimensional first-person maze view. Clear every warden, then reach the exit. Move with W A S D, turn with Q E or the arrow keys, fire with Space, and press P to pause."
+          aria-keyshortcuts="W A S D Q E ArrowLeft ArrowRight Space P Escape"
+        >
+          Your browser does not support WebGL 2. Maze Breaker needs a modern
+          browser with JavaScript and WebGL 2 enabled.
+        </canvas>
+        <canvas id="hud" width="384" height="216" aria-hidden="true"></canvas>
+      </div>
       <div
         id="overlay"
         class="overlay"
@@ -57,7 +60,7 @@
     </main>
     <noscript>
       <p style="padding: 16px; text-align: center">
-        Maze Breaker needs JavaScript and Canvas 2D. The game makes no network
+        Maze Breaker needs JavaScript and WebGL 2. The game makes no network
         requests after loading.
       </p>
     </noscript>

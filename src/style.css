@@ -46,12 +46,28 @@ body {
 /* Fixed internal resolution (384x216), scaled with CSS. Pixelated on purpose.
    Width is capped so the canvas always fits the viewport height (no scrolling).
    The 200px floor keeps it visible in extremely short windows. */
-#view {
+.viewport-shell {
   width: min(100%, max(200px, calc((100vh - 150px) * 16 / 9)));
   aspect-ratio: 16 / 9;
-  height: auto;
+  position: relative;
+  overflow: hidden;
+}
+
+#view,
+#hud {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   display: block;
   image-rendering: pixelated;
+}
+
+#hud {
+  pointer-events: none;
+}
+
+#view {
   background: #191c25;
   border: 3px solid var(--edge);
   border-radius: 4px;

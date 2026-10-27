@@ -1,220 +1,234 @@
-import { FOV_PLANE, VIEW_H, VIEW_W } from "../constants";
-import type { GameState } from "../types";
-import { castRay } from "../raycast";
-import type { SpriteSheet } from "./sprites";
+import * as THREE from "three";
+import { VIEW_H, VIEW_W } from "../constants";
+import type { Enemy, GameState, MapData } from "../types";
+import type { SpriteKey, SpriteSheet } from "./sprites";
 import { drawHud } from "./hud";
 
-const SHADES = 16;
-const FOG = 0.135; // higher = darker distance falloff
+const CAMERA_HEIGHT = 0.68;
+const WALL_HEIGHT = 1.6;
+const CAMERA_FOV = 42;
+const FAR_PLANE = 42;
 
-type Palette = string[][]; // [light?][side] -> array of SHADES colors, far → dark
-
-function makeShades(r: number, g: number, b: number, boost: number): string[] {
-  const out: string[] = [];
-  for (let i = 0; i < SHADES; i++) {
-    const t = i / (SHADES - 1); // 0 near … 1 far
-    const k = Math.min(1, (1 - t * 0.88) * boost);
-    out.push(`rgb(${Math.round(r * k)},${Math.round(g * k)},${Math.round(b * k)})`);
-  }
-  return out;
+interface EnemyView {
+  sprite: THREE.Sprite;
+  material: THREE.SpriteMaterial;
 }
 
-function buildPalette(r: number, g: number, b: number, sideDim: number, boost = 1): Palette {
-  const s0 = makeShades(r, g, b, boost);
-  const s1 = makeShades(r * sideDim, g * sideDim, b * sideDim, boost);
-  return [s0, s1];
-}
-
-// Palettes are built lazily on first draw so the module also works in node tests.
-let palNormal: Palette | null = null;
-let palLit: Palette | null = null;
-function palettes(): [Palette, Palette] {
-  if (!palNormal) {
-    palNormal = buildPalette(126, 136, 156, 0.68, 1);
-    palLit = buildPalette(126, 136, 156, 0.68, 1.45);
-  }
-  return [palNormal, palLit as Palette];
+interface TextureSet {
+  enemy: Record<SpriteKey, THREE.CanvasTexture>;
+  flash: Record<SpriteKey, THREE.CanvasTexture>;
+  exitLocked: THREE.CanvasTexture;
+  exitOpenA: THREE.CanvasTexture;
+  exitOpenB: THREE.CanvasTexture;
 }
 
 export interface DrawView {
   (state: GameState, sprites: SpriteSheet, reducedMotion: boolean): void;
+  dispose(): void;
 }
 
-export function createViewRenderer(canvas: HTMLCanvasElement): DrawView {
-  const ctx = canvas.getContext("2d", { alpha: false });
-  if (!ctx) throw new Error("Canvas 2D unavailable");
-  const depth = new Float32Array(VIEW_W);
-  return (state, sprites, reducedMotion) =>
-    renderFrame(ctx, depth, state, sprites, reducedMotion);
+/** Three.js world renderer with a transparent Canvas 2D HUD overlay. */
+export function createViewRenderer(
+  canvas: HTMLCanvasElement,
+  hudCanvas: HTMLCanvasElement,
+): DrawView {
+  const hud = hudCanvas.getContext("2d");
+  if (!hud) throw new Error("HUD Canvas 2D unavailable");
+
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias: false,
+    alpha: false,
+    depth: true,
+    powerPreference: "low-power",
+  });
+  renderer.setPixelRatio(1);
+  renderer.setSize(VIEW_W, VIEW_H, false);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = false;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x171a23);
+  scene.fog = new THREE.Fog(0x171a23, 7, 25);
+
+  const camera = new THREE.PerspectiveCamera(CAMERA_FOV, VIEW_W / VIEW_H, 0.05, FAR_PLANE);
+  camera.rotation.order = "YXZ";
+  scene.add(camera);
+  scene.add(new THREE.HemisphereLight(0x8795b8, 0x322a22, 1.55));
+
+  const muzzleLight = new THREE.PointLight(0xffb84d, 0, 6, 1.7);
+  muzzleLight.position.set(0.25, -0.12, -0.35);
+  camera.add(muzzleLight);
+
+  const worldRoot = new THREE.Group();
+  const entityRoot = new THREE.Group();
+  scene.add(worldRoot, entityRoot);
+
+  let loadedMap: MapData | null = null;
+  let textures: TextureSet | null = null;
+  let enemyViews: EnemyView[] = [];
+  let exitView: EnemyView | null = null;
+  const lookTarget = new THREE.Vector3();
+
+  const draw = ((state: GameState, sprites: SpriteSheet, reducedMotion: boolean): void => {
+    if (loadedMap !== state.map) {
+      clearGroup(worldRoot);
+      clearGroup(entityRoot);
+      disposeTextures(textures);
+      textures = buildTextures(sprites);
+      buildWorld(worldRoot, state.map);
+      enemyViews = state.enemies.map(() => createSpriteView(entityRoot, textures!.enemy.idle));
+      exitView = createSpriteView(entityRoot, textures.exitLocked);
+      loadedMap = state.map;
+    }
+
+    const { x, y, dir } = state.player;
+    camera.position.set(x, CAMERA_HEIGHT, y);
+    lookTarget.set(x + Math.cos(dir), CAMERA_HEIGHT, y + Math.sin(dir));
+    camera.lookAt(lookTarget);
+
+    updateEnemies(enemyViews, state.enemies, textures!);
+    updateExit(exitView!, state, textures!, reducedMotion);
+    muzzleLight.intensity = state.fire.muzzle > 0 ? 4.2 : 0;
+
+    renderer.render(scene, camera);
+    hud.clearRect(0, 0, VIEW_W, VIEW_H);
+    drawHud(hud, state, reducedMotion);
+  }) as DrawView;
+
+  draw.dispose = (): void => {
+    clearGroup(worldRoot);
+    clearGroup(entityRoot);
+    disposeTextures(textures);
+    renderer.dispose();
+  };
+  return draw;
 }
 
-function renderFrame(
-  ctx: CanvasRenderingContext2D,
-  depth: Float32Array,
+function buildWorld(root: THREE.Group, map: MapData): void {
+  const wallCount = [...map.cells].filter((cell) => cell === 1).length;
+  const walls = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(1, WALL_HEIGHT, 1),
+    new THREE.MeshLambertMaterial({ color: 0x748097, flatShading: true }),
+    wallCount,
+  );
+  walls.name = "maze-walls";
+  const matrix = new THREE.Matrix4();
+  let instance = 0;
+  for (let z = 0; z < map.h; z++) {
+    for (let x = 0; x < map.w; x++) {
+      if (map.cells[z * map.w + x] !== 1) continue;
+      matrix.makeTranslation(x + 0.5, WALL_HEIGHT / 2, z + 0.5);
+      walls.setMatrixAt(instance++, matrix);
+    }
+  }
+  walls.instanceMatrix.needsUpdate = true;
+  walls.computeBoundingSphere();
+  root.add(walls);
+
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(map.w, map.h),
+    new THREE.MeshLambertMaterial({ color: 0x27231f }),
+  );
+  floor.name = "maze-floor";
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.set(map.w / 2, 0, map.h / 2);
+  root.add(floor);
+
+  const ceiling = new THREE.Mesh(
+    new THREE.PlaneGeometry(map.w, map.h),
+    new THREE.MeshBasicMaterial({ color: 0x171a23, side: THREE.BackSide }),
+  );
+  ceiling.name = "maze-ceiling";
+  ceiling.rotation.x = -Math.PI / 2;
+  ceiling.position.set(map.w / 2, WALL_HEIGHT, map.h / 2);
+  root.add(ceiling);
+}
+
+function createTexture(source: HTMLCanvasElement): THREE.CanvasTexture {
+  const texture = new THREE.CanvasTexture(source);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  texture.generateMipmaps = false;
+  return texture;
+}
+
+function buildTextures(sprites: SpriteSheet): TextureSet {
+  const enemy = {} as Record<SpriteKey, THREE.CanvasTexture>;
+  const flash = {} as Record<SpriteKey, THREE.CanvasTexture>;
+  for (const key of ["idle", "chase", "attack", "dead"] as const) {
+    enemy[key] = createTexture(sprites.enemy[key]);
+    flash[key] = createTexture(sprites.flash[key]);
+  }
+  return {
+    enemy,
+    flash,
+    exitLocked: createTexture(sprites.exitLocked),
+    exitOpenA: createTexture(sprites.exitOpenA),
+    exitOpenB: createTexture(sprites.exitOpenB),
+  };
+}
+
+function createSpriteView(root: THREE.Group, texture: THREE.Texture): EnemyView {
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    alphaTest: 0.08,
+    depthTest: true,
+    depthWrite: false,
+    fog: true,
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.center.set(0.5, 0);
+  root.add(sprite);
+  return { sprite, material };
+}
+
+function updateEnemies(views: EnemyView[], enemies: Enemy[], textures: TextureSet): void {
+  for (let i = 0; i < views.length; i++) {
+    const view = views[i];
+    const enemy = enemies[i];
+    view.material.map = enemy.flash > 0
+      ? textures.flash[enemy.state]
+      : textures.enemy[enemy.state];
+    view.sprite.position.set(enemy.x, 0.015, enemy.y);
+    view.sprite.scale.set(0.72, enemy.state === "dead" ? 0.32 : 0.98, 1);
+  }
+}
+
+function updateExit(
+  view: EnemyView,
   state: GameState,
-  sprites: SpriteSheet,
+  textures: TextureSet,
   reducedMotion: boolean,
 ): void {
-  ctx.imageSmoothingEnabled = false;
-  const { player, map, fire } = state;
-  const lit = fire.muzzle > 0;
-  const [normal, litPal] = palettes();
-  const pal = lit ? litPal : normal;
-
-  // Flat-shaded ceiling / floor.
-  const mid = VIEW_H >> 1;
-  ctx.fillStyle = lit ? "#33302c" : "#26221e";
-  ctx.fillRect(0, mid, VIEW_W, VIEW_H - mid);
-  ctx.fillStyle = lit ? "#262936" : "#171a23";
-  ctx.fillRect(0, 0, VIEW_W, mid);
-
-  const dirX = Math.cos(player.dir);
-  const dirY = Math.sin(player.dir);
-  const planeX = -dirY * FOV_PLANE;
-  const planeY = dirX * FOV_PLANE;
-
-  // Walls: one DDA ray per column + flat shade + per-column depth buffer.
-  for (let x = 0; x < VIEW_W; x++) {
-    const camX = (2 * x) / VIEW_W - 1;
-    const rdX = dirX + planeX * camX;
-    const rdY = dirY + planeY * camX;
-    const hit = castRay(map, player.x, player.y, rdX, rdY, 64);
-    if (!hit) {
-      depth[x] = 1e6; // open sky (cannot happen with a bounded map)
-      continue;
-    }
-    const perp = Math.max(hit.dist, 0.02);
-    depth[x] = perp;
-    const lineH = VIEW_H / perp;
-    const top = (VIEW_H - lineH) / 2;
-    const y0 = Math.max(0, Math.floor(top));
-    const y1 = Math.min(VIEW_H, Math.ceil(top + lineH));
-    let fade = 1 / (1 + perp * FOG);
-    if (lit) fade = Math.min(1, fade * 1.45);
-    let idx = ((1 - fade) * SHADES) | 0;
-    if (idx > SHADES - 1) idx = SHADES - 1;
-    ctx.fillStyle = pal[hit.side][idx];
-    ctx.fillRect(x, y0, 1, y1 - y0);
-  }
-
-  drawBillboards(ctx, depth, state, sprites, dirX, dirY, planeX, planeY, reducedMotion);
-  drawHud(ctx, state, reducedMotion);
+  view.material.map = !state.exitOpen
+    ? textures.exitLocked
+    : reducedMotion || state.time % 0.8 < 0.4
+      ? textures.exitOpenA
+      : textures.exitOpenB;
+  view.sprite.position.set(state.map.exit.x + 0.5, 0.015, state.map.exit.y + 0.5);
+  view.sprite.scale.set(0.42, 1.12, 1);
 }
 
-interface Billboard {
-  x: number;
-  y: number;
-  img: HTMLCanvasElement;
-  height: number; // world-space height factor (1 = full wall height)
-  depth: number; // perpendicular distance along the camera axis
-}
-
-function drawBillboards(
-  ctx: CanvasRenderingContext2D,
-  depth: Float32Array,
-  state: GameState,
-  sprites: SpriteSheet,
-  dirX: number,
-  dirY: number,
-  planeX: number,
-  planeY: number,
-  reducedMotion: boolean,
-): void {
-  const list: Billboard[] = [];
-  const player = state.player;
-
-  const add = (x: number, y: number, img: HTMLCanvasElement, height: number): void => {
-    list.push({
-      x,
-      y,
-      img,
-      height,
-      depth: (x - player.x) * dirX + (y - player.y) * dirY,
-    });
-  };
-
-  for (const e of state.enemies) {
-    if (e.state === "dead") {
-      add(e.x, e.y, e.flash > 0 ? sprites.flash.dead : sprites.enemy.dead, 0.32);
-    } else {
-      const sheet = e.flash > 0 ? sprites.flash : sprites.enemy;
-      add(e.x, e.y, sheet[e.state], 0.84);
-    }
-  }
-
-  const exitImg = !state.exitOpen
-    ? sprites.exitLocked
-    : reducedMotion
-      ? sprites.exitOpenA
-      : (state.time % 0.8) < 0.4
-        ? sprites.exitOpenA
-        : sprites.exitOpenB;
-  add(state.map.exit.x + 0.5, state.map.exit.y + 0.5, exitImg, 1.0);
-
-  // Sort far → near so near sprites overdraw (also keeps occlusion cheap).
-  list.sort((a, b) => b.depth - a.depth);
-
-  const planeLen2 = planeX * planeX + planeY * planeY;
-  for (const item of list) {
-    const itemDepth = item.depth;
-    if (itemDepth < 0.12) continue; // behind camera / on top of lens
-    const rx = item.x - player.x;
-    const ry = item.y - player.y;
-    // Lateral param t ∈ [-1, 1] of the column ray passing through the sprite.
-    const planeDot = planeX * rx + planeY * ry;
-    const t = planeDot / (planeLen2 * itemDepth);
-    if (t < -1.6 || t > 1.6) continue;
-    const centerPx = ((t + 1) / 2) * VIEW_W;
-    const wallH = VIEW_H / itemDepth;
-    const spriteH = item.height * wallH;
-    const srcW = item.img.width;
-    const srcH = item.img.height;
-    const spriteW = spriteH * (srcW / srcH);
-    const left = centerPx - spriteW / 2;
-    const bottom = VIEW_H / 2 + wallH / 2;
-    const topY = bottom - spriteH;
-
-    const col0 = Math.max(0, Math.floor(left));
-    const col1 = Math.min(VIEW_W - 1, Math.ceil(left + spriteW));
-    drawSpriteColumns(ctx, item.img, left, spriteW, topY, spriteH, itemDepth, depth, col0, col1);
+function clearGroup(group: THREE.Group): void {
+  for (const child of [...group.children]) {
+    group.remove(child);
+    const object = child as THREE.Mesh;
+    object.geometry?.dispose();
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of materials) material?.dispose();
   }
 }
 
-/**
- * Blit only the visible columns of a billboard. Contiguous visible columns are
- * batched into one drawImage, which keeps close-range sprites cheap while
- * retaining true per-column wall occlusion.
- */
-function drawSpriteColumns(
-  ctx: CanvasRenderingContext2D,
-  img: HTMLCanvasElement,
-  left: number,
-  spriteW: number,
-  topY: number,
-  spriteH: number,
-  itemDepth: number,
-  depth: Float32Array,
-  col0: number,
-  col1: number,
-): void {
-  const srcW = img.width;
-  const srcH = img.height;
-
-  const blit = (startX: number, endX: number): void => {
-    const u0 = Math.min(srcW - 1, Math.max(0, Math.floor(((startX + 0.5 - left) / spriteW) * srcW)));
-    const u1 = Math.min(srcW - 1, Math.max(0, Math.floor(((endX + 0.5 - left) / spriteW) * srcW)));
-    const sw = Math.max(1, u1 - u0 + 1);
-    ctx.drawImage(img, u0, 0, sw, srcH, startX, topY, endX - startX + 1, spriteH);
-  };
-
-  let runStart = -1;
-  for (let x = col0; x <= col1 + 1; x++) {
-    const visible = x <= col1 && itemDepth < depth[x];
-    if (visible) {
-      if (runStart < 0) runStart = x;
-    } else if (runStart >= 0) {
-      blit(runStart, x - 1);
-      runStart = -1;
-    }
-  }
+function disposeTextures(textures: TextureSet | null): void {
+  if (!textures) return;
+  for (const texture of [
+    ...Object.values(textures.enemy),
+    ...Object.values(textures.flash),
+    textures.exitLocked,
+    textures.exitOpenA,
+    textures.exitOpenB,
+  ]) texture.dispose();
 }

@@ -14,6 +14,7 @@ import { createInput } from "./input";
 import { createAnnouncer, formatEvents } from "./ui/announce";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
+const hudCanvas = document.getElementById("hud") as HTMLCanvasElement;
 const overlay = document.getElementById("overlay") as HTMLDivElement;
 const overlayTitle = document.getElementById("overlay-title") as HTMLElement;
 const overlayText = document.getElementById("overlay-text") as HTMLElement;
@@ -21,7 +22,7 @@ const overlayButton = document.getElementById("overlay-button") as HTMLButtonEle
 const statusEl = document.getElementById("status") as HTMLElement;
 
 let state = createGame();
-const draw = createViewRenderer(canvas);
+const draw = createViewRenderer(canvas, hudCanvas);
 const sprites = buildSprites();
 
 const reducedMq = matchMedia("(prefers-reduced-motion: reduce)");
@@ -208,5 +209,6 @@ if (import.meta.hot) {
     document.removeEventListener("pointerlockchange", onPointerLockChange);
     document.removeEventListener("visibilitychange", onVisibilityChange);
     releasePointerLock();
+    draw.dispose();
   });
 }
