@@ -1,5 +1,7 @@
 # Maze Breaker
 
+**Play online:** <https://toitsclaw.github.io/maze-breaker/>
+
 A complete, lightweight retro FPS MVP for the browser: a hand-authored maze
 rendered in Three.js at a selectable internal resolution, instanced walls,
 billboard "warden" enemies, a programmatically drawn pistol/HUD, and a small
