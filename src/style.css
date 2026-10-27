@@ -1,0 +1,178 @@
+/* Maze Breaker — retro CRT-ish frame around a pixel-scaled raycast view. */
+
+:root {
+  --ink: #e8ecf4;
+  --dim: #9aa3b2;
+  --panel: #14171d;
+  --edge: #2c3140;
+  --accent: #ffcf5e;
+  --go: #39d98a;
+  --bad: #ff5a5a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #0b0d11;
+  color: var(--ink);
+  font-family: "Courier New", "DejaVu Sans Mono", monospace;
+  min-height: 100vh;
+}
+
+#stage {
+  position: relative;
+  margin: 0 auto;
+  max-width: 1100px;
+  padding: 18px 12px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.game-title {
+  margin: 4px 0 2px;
+  font-size: 20px;
+  letter-spacing: 6px;
+  color: var(--accent);
+  text-align: center;
+}
+
+/* Fixed internal resolution (384x216), scaled with CSS. Pixelated on purpose.
+   Width is capped so the canvas always fits the viewport height (no scrolling).
+   The 200px floor keeps it visible in extremely short windows. */
+#view {
+  width: min(100%, max(200px, calc((100vh - 150px) * 16 / 9)));
+  aspect-ratio: 16 / 9;
+  height: auto;
+  display: block;
+  image-rendering: pixelated;
+  background: #191c25;
+  border: 3px solid var(--edge);
+  border-radius: 4px;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+#view:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* Fixed to the viewport, not the stage: on narrow/short windows the stage is
+   shorter than the panel, which used to push the title off-screen. */
+.overlay {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(92vw, 480px);
+  max-width: 92vw;
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  background: rgba(10, 12, 16, 0.94);
+  border: 2px solid var(--edge);
+  border-radius: 6px;
+  padding: 18px 22px 20px;
+  text-align: center;
+  z-index: 10;
+}
+
+.overlay[hidden] {
+  display: none;
+}
+
+#overlay-title {
+  margin: 0 0 8px;
+  font-size: 22px;
+  letter-spacing: 5px;
+  color: var(--accent);
+}
+
+.overlay-text {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.controls {
+  margin: 0 auto 14px;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+
+.controls th {
+  color: var(--dim);
+  font-weight: normal;
+  padding: 2px 12px 2px 0;
+  border-bottom: 1px solid #232833;
+}
+
+.controls td {
+  padding: 2px 0;
+  color: var(--ink);
+  border-bottom: 1px solid #232833;
+}
+
+.controls tr:last-child th,
+.controls tr:last-child td {
+  border-bottom: none;
+}
+
+#overlay-button {
+  font: inherit;
+  font-size: 14px;
+  letter-spacing: 2px;
+  min-height: 44px;
+  color: #10131a;
+  background: var(--accent);
+  border: 0;
+  border-radius: 4px;
+  padding: 9px 26px;
+  cursor: pointer;
+}
+
+#overlay-button:hover {
+  filter: brightness(1.08);
+}
+
+#overlay-button:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.overlay-hint {
+  margin: 12px 0 0;
+  font-size: 11px;
+  color: var(--dim);
+  line-height: 1.5;
+}
+
+/* Screen-reader status line; visually hidden but announced. */
+#status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
